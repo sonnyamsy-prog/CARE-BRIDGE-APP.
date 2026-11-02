@@ -12,3 +12,5 @@ Static front end (`public/`) + Supabase database (`schema.sql`) + one Edge Funct
 7. Sign in as staff with Organization ID, email, password; set up the authenticator on first login.
 
 More nurses: create them in Authentication > Users, then add a `profiles` row (role `staff`) and an `organization_members` row (role `nurse`).
+NEXT_PUBLIC_SUPABASE_URL=https://tjghhlfnntvwhbanlqjg.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_GEZLrotWakH50SG2Fz3n4A_5p6JXwU0
