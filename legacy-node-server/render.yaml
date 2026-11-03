@@ -1,0 +1,21 @@
+# Render Blueprint: New > Blueprint, pick this repo. A persistent disk needs a paid plan.
+services:
+  - type: web
+    name: carebridge
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    plan: starter
+    disk:
+      name: carebridge-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - { key: DATA_DIR, value: /var/data }
+      - { key: TZ_NAME, value: Africa/Nairobi }
+      - { key: TRUST_PROXY, value: "1" }
+      - { key: HSTS, value: "1" }
+      - { key: OWNER_ID, sync: false }
+      - { key: OWNER_PIN, sync: false }
+      - { key: ALERT_WEBHOOK_URL, sync: false }
