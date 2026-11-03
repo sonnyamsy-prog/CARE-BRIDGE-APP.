@@ -66,6 +66,18 @@ function flushQ(){if(S.role!=="patient"||!S.me||!navigator.onLine)return;
     return loadPatient().then(function(){draw();flushQ()})}).catch(function(){})}
 window.addEventListener("online",flushQ);
 if("serviceWorker" in navigator)window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){})});
+async function loadOrgs(){var r=await sb.from("organization_members").select("organization_id,role,organizations(name)").eq("user_id",S.uid).eq("active",true);
+  if(r.error)throw r.error;S.orgs=r.data.map(function(x){return{id:x.organization_id,role:x.role,name:(x.organizations&&x.organizations.name)||""}})}
+function addOrg(){run(async function(){var n=v("on_n");if(!n)throw new Error("Enter a name for the organization.");S.newOrg=await fn({action:"create_org",org_id:S.org,name:n});await loadOrgs()})}
+function switchOrg(id){run(async function(){var o=S.orgs.find(function(x){return x.id===id});if(!o)return;S.org=id;S.orgRole=o.role;try{localStorage.setItem("cb_org",id)}catch(e){}S.team=null;S.sel=null;S.newOrg=null;S.tab="patients";await loadStaff()})}
+function openAccount(){S.tab="account";S.sel=null;S.reg=null;S.flash="";S.newStaff=null;S.newOrg=null;draw();
+  run(async function(){await loadOrgs();if(S.orgRole==="owner")S.team=(await fn({action:"list_staff",org_id:S.org})).staff})}
+function teamReload(){return fn({action:"list_staff",org_id:S.org}).then(function(d){S.team=d.staff})}
+function addStaff(){run(async function(){var b={action:"add_staff",org_id:S.org,name:v("st_n"),email:v("st_e"),role:v("st_r")};
+  if(!b.name||!b.email)throw new Error("Enter a name and an email.");S.newStaff=await fn(b);await teamReload()})}
+function setActive(uid,active){run(async function(){await fn({action:"set_staff_active",org_id:S.org,user_id:uid,active:active});await teamReload()})}
+function changePw(){var a=v("pw1"),b=v("pw2");run(async function(){if(a.length<10)throw new Error("Use at least 10 characters.");
+  if(a!==b)throw new Error("The two passwords do not match.");var r=await sb.auth.updateUser({password:a});if(r.error)throw r.error;S.flash="Password changed."})}
 function out(){sb.auth.signOut().then(function(){location.reload()})}
 
 /* ---------- sign-in ---------- */
@@ -86,7 +98,7 @@ async function enter(){
   var org=S.org||localStorage.getItem("cb_org")||"";
   var m=org?(await sb.from("organization_members").select("role").eq("organization_id",org).eq("user_id",u.id).eq("active",true).maybeSingle()).data:null;
   if(!m)return deny("Access denied: you are not an active member of that organization.");
-  S.org=org;S.orgRole=m.role;try{localStorage.setItem("cb_org",org)}catch(e){}
+  S.uid=u.id;S.org=org;S.orgRole=m.role;try{localStorage.setItem("cb_org",org)}catch(e){}
   var aal=(await sb.auth.mfa.getAuthenticatorAssuranceLevel()).data;
   if(aal&&aal.currentLevel==="aal2"){await loadStaff();S.stage="app";return}
   var f=(await sb.auth.mfa.listFactors()).data||{};
@@ -153,8 +165,8 @@ function alerts(){return S.pts.filter(function(p){var c=last(p.id);return p.stat
 function missed(){if(new Date().getHours()<12)return[];var t=new Date().toISOString().slice(0,10);
   return S.pts.filter(function(p){var c=last(p.id);return p.status==="monitoring"&&p.dd<=t&&!(c&&isToday(c.created_at))})}
 function nav(){var n=alerts().length+missed().length;
-  return'<div class="tabs">'+[["patients","Patients"],["alerts","Alerts"+(n?" ("+n+")":"")],["register","Register"]].map(function(t){
-    return'<button class="'+(S.tab===t[0]&&!S.sel?"on":"")+'" onclick="S.tab=\''+t[0]+'\';S.sel=null;S.reg=null;S.flash=\'\';draw()">'+t[1]+"</button>"}).join("")+"</div>"}
+  return'<div class="tabs">'+[["patients","Patients"],["alerts","Alerts"+(n?" ("+n+")":"")],["register","Register"],["account","Account"]].map(function(t){
+    return'<button class="'+(S.tab===t[0]&&!S.sel?"on":"")+'" onclick="'+(t[0]==="account"?"openAccount()":"S.tab=\'"+t[0]+"\';S.sel=null;S.reg=null;S.flash=\'\';draw()")+'">'+t[1]+"</button>"}).join("")+"</div>"}
 function rowV(p,extra){var r=lv(p.id);
   return'<button class="row" onclick="S.sel='+p.id+';S.reg=null;draw()"><span class="dot '+r+'"></span><span class="grow"><b>'+esc(p.name)+'</b><small>'+esc(p.dx)+" · "+esc(p.dept)+(extra?" · "+esc(extra):"")+'</small></span><span class="pill '+r+'">'+LB[r]+"</span></button>"}
 function listV(){var q=S.q.toLowerCase(),ord={red:0,amber:1,none:2,green:3};
@@ -179,8 +191,18 @@ function detailV(p){var cs=S.ci[p.id]||[];
   +"<h3>Recent check-ins</h3>"+(cs.slice(-8).reverse().map(function(c){return ciV(c,true)}).join("")||'<p class="mute">None yet.</p>')
   +"<h3>Messages</h3>"+msgsV(p.id)
   +'<p><button class="btn alt sm" onclick="setStatus('+p.id+",'"+(p.status==="monitoring"?"closed":"monitoring")+"')\">"+(p.status==="monitoring"?"Close monitoring":"Reopen monitoring")+'</button> <button class="btn alt sm" onclick="resetPin('+p.id+')">New PIN</button></p>'}
+function teamRow(m){return'<div class="row" style="cursor:default"><span class="grow"><b>'+esc(m.name)+'</b><small>'+esc(m.email)+" · "+esc(m.role)+(m.active?"":" · access removed")+"</small></span>"
+  +(m.user_id===S.uid?"":'<button class="btn alt sm" onclick="setActive(\''+m.user_id+"',"+(!m.active)+')">'+(m.active?"Remove access":"Restore")+"</button>")+"</div>"}
+function orgsV(){var o=S.orgs||[],n=S.newOrg;
+  return"<h3>Organizations</h3>"+(n?'<div class="banner"><b>'+esc(n.name)+' created.</b><br>Staff sign in with this Organization ID: <b>'+esc(n.id)+'</b><div class="mute">Use Switch below to open it, then add its staff under Team.</div></div>':"")
+  +o.map(function(x){return'<div class="row" style="cursor:default"><span class="grow"><b>'+esc(x.name)+"</b><small>"+esc(x.role)+" · ID "+esc(x.id)+(x.id===S.org?" · current":"")+"</small></span>"+(x.id===S.org?"":'<button class="btn alt sm" onclick="switchOrg(\''+x.id+'\')">Switch</button>')+"</div>"}).join("")
+  +(S.orgRole==="owner"?'<div class="card"><h3>Create a new organization</h3><label for="on_n">Name of the hospital or clinic</label><input id="on_n"><button class="btn full" onclick="addOrg()">Create organization</button></div>':"")}
+function accountV(){var n=S.newStaff,own=S.orgRole==="owner";
+  return'<h2>Account</h2><div class="card"><h3>Change my password</h3><label for="pw1">New password (10 or more characters)</label><input id="pw1" type="password" autocomplete="new-password"><label for="pw2">Repeat it</label><input id="pw2" type="password" autocomplete="new-password"><button class="btn" onclick="changePw()">Change password</button></div>'
+  +orgsV()+(own?"<h3>Team</h3>"+(n?'<div class="banner"><b>'+esc(n.name)+" ("+esc(n.role)+')</b><br>Email: <b>'+esc(n.email)+'</b><br>Temporary password: <b>'+esc(n.password)+'</b><div class="mute">Shown once. Give it to them privately and ask them to change it here. They set up their own authenticator at first sign-in.</div></div>':"")
+    +(S.team||[]).map(teamRow).join("")+'<div class="card"><h3>Add a staff member</h3><label for="st_n">Full name</label><input id="st_n"><label for="st_e">Email</label><input id="st_e" type="email"><label for="st_r">Role</label><select id="st_r"><option value="nurse">Nurse</option><option value="owner">Owner</option></select><button class="btn full" onclick="addStaff()">Add staff member</button></div>':"")}
 function staffV(){var p=S.sel&&S.pts.find(function(x){return x.id===S.sel});
-  return head()+nav()+fl()+(p?detailV(p):S.tab==="alerts"?alertsV():S.tab==="register"?regV():listV())}
+  return head()+nav()+fl()+(p?detailV(p):S.tab==="alerts"?alertsV():S.tab==="register"?regV():S.tab==="account"?accountV():listV())}
 function patientV(){var p=S.me,c=last(p.id),done=c&&isToday(c.created_at)&&!S.redo,msg={green:"Thank you. You are on track. Keep taking your medicines.",amber:"Thank you. A nurse will look at your answers and may call you.",red:"Please contact your nurse or go to the nearest clinic now if you feel very unwell."};
   var body;
   if(p.status!=="monitoring")body='<div class="banner">Your monitoring has ended. Thank you.</div>';
@@ -189,6 +211,6 @@ function patientV(){var p=S.me,c=last(p.id),done=c&&isToday(c.created_at)&&!S.re
     body='<div class="card"><h3>Today’s check-in</h3>'+QS.map(function(q){return'<div class="q"><span>'+q[1]+'</span><span><button class="btn sm'+(f[q[0]]===true?"":" alt")+'" onclick="yn(\''+q[0]+'\',true)">Yes</button> <button class="btn sm'+(f[q[0]]===false?"":" alt")+'" onclick="yn(\''+q[0]+'\',false)">No</button></span></div>'}).join("")
       +'<label><input type="checkbox" '+(S.urgent?"checked":"")+' onchange="S.urgent=this.checked"> I have chest pain, or I feel faint</label><label for="cn" style="display:block;margin-top:10px">Anything else to tell the nurse? (optional)</label><textarea id="cn" rows="2">'+esc(S.note)+'</textarea><button class="btn full" onclick="submitCi()">Send check-in</button></div>'}
   return head()+fl()+(S.queued?'<div class="banner">A check-in is saved on this phone and will send when you are online.</div>':"")+"<h2>Hello, "+esc(p.name)+"</h2>"+body+(p.status==="monitoring"?"":"")+"<h3>Messages</h3>"+msgsV(p.id)}
-function draw(){var h=S.stage==="login"?loginV():S.stage==="enrol"?enrolV():S.stage==="challenge"?challV():S.role==="patient"?patientV():staffV();A.innerHTML='<div class="wrap">'+h+'<p class="mute" style="text-align:center"><small>build 4</small></p></div>'}
+function draw(){var h=S.stage==="login"?loginV():S.stage==="enrol"?enrolV():S.stage==="challenge"?challV():S.role==="patient"?patientV():staffV();A.innerHTML='<div class="wrap">'+h+'<p class="mute" style="text-align:center"><small>build 6</small></p></div>'}
 boot();
 </script></body></html>
