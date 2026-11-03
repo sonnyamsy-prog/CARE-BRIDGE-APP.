@@ -23,12 +23,21 @@ input[type=checkbox]{width:auto;margin:0 8px 0 0}
 .msg{padding:8px 10px;border-radius:10px;background:var(--card);border:1px solid var(--line);margin:6px 0}.msg.me{background:var(--line)}
 .q{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:10px 0;flex-wrap:wrap}
 .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
-</style></head><body><div id="app"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+</style></head><body><div id="app"><p style="padding:20px;font-family:system-ui,sans-serif">Loading CareBridge…</p></div>
+<script>
+function cbShow(m){var a=document.getElementById("app");a.innerHTML='<div style="max-width:560px;margin:30px auto;padding:16px;font-family:system-ui,sans-serif"><h2>CareBridge hit a problem</h2><p>Please send a screenshot of this to your developer:</p><pre style="white-space:pre-wrap;background:#eee;color:#000;padding:10px;border-radius:8px">'+String(m).replace(/[<&>]/g,"")+"</pre></div>"}
+window.addEventListener("error",function(e){
+  if(e.target&&e.target.tagName==="SCRIPT"){return cbShow("Could not load file: "+e.target.src)}
+  if(/^(Uncaught )?(Error: )?CareBridge:/.test(e.message||""))return;
+  cbShow((e.message||"error")+" ("+String(e.filename||"").split("/").pop()+":"+(e.lineno||"")+")")},true);
+window.addEventListener("unhandledrejection",function(e){cbShow("Promise error: "+((e.reason&&e.reason.message)||e.reason))});
+</script>
+<script src="supabase.js"></script>
 <script>
 /* ====== EDIT THESE THREE VALUES (the URL and public key are safe to put here; NEVER the service-role/secret key) ====== */
-var CFG={url:"PASTE_PROJECT_URL",key:"PASTE_PUBLIC_ANON_KEY",domain:"patients.example.org"};
+var CFG={url:"https://tjghhlfnntvwhbanlqjg.supabase.co",key:"sb_publishable_GEZLrotWakH50SG2Fz3n4A_5p6JXwU0",domain:"patients.example.org"};
 
+if(typeof supabase==="undefined"){document.getElementById("app").innerHTML='<div style="max-width:560px;margin:40px auto;padding:16px"><h2>CareBridge could not load</h2><p>A required file (supabase.js) is missing or was blocked. Check that it is inside the public folder, then refresh.</p></div>';throw new Error("supabase.js not loaded")}
 if(/PASTE_/.test(CFG.url)||/PASTE_/.test(CFG.key)){document.getElementById("app").innerHTML='<div style="max-width:560px;margin:40px auto;padding:16px"><h2>CareBridge is not connected yet</h2><p>Open <code>public/index.html</code>, replace the two PASTE_ values in <code>var CFG</code> with your Supabase Project URL and public key, and save.</p></div>';throw new Error("CareBridge: config not set")}
 var sb=supabase.createClient(CFG.url,CFG.key),A=document.getElementById("app"),qs=new URLSearchParams(location.search);
 var DEPTS=["Cardiology","Diabetes and endocrine","Respiratory","Renal","Maternity","General medical","Surgical","Paediatrics","Other"];
@@ -60,7 +69,7 @@ if("serviceWorker" in navigator)window.addEventListener("load",function(){naviga
 function out(){sb.auth.signOut().then(function(){location.reload()})}
 
 /* ---------- sign-in ---------- */
-function boot(){sb.auth.getSession().then(function(r){if(r.data&&r.data.session)run(enter);else draw()})}
+function boot(){sb.auth.getSession().then(function(r){if(r.data&&r.data.session)run(enter);else draw()}).catch(function(e){cbShow("Start-up error: "+((e&&e.message)||e))})}
 function login(){run(async function(){
   var r;
   if(S.mode==="patient"){r=await sb.auth.signInWithPassword({email:v("lc").toLowerCase()+"@"+CFG.domain,password:v("lp")});if(r.error)throw new Error("Wrong code or PIN.")}
@@ -180,6 +189,6 @@ function patientV(){var p=S.me,c=last(p.id),done=c&&isToday(c.created_at)&&!S.re
     body='<div class="card"><h3>Today’s check-in</h3>'+QS.map(function(q){return'<div class="q"><span>'+q[1]+'</span><span><button class="btn sm'+(f[q[0]]===true?"":" alt")+'" onclick="yn(\''+q[0]+'\',true)">Yes</button> <button class="btn sm'+(f[q[0]]===false?"":" alt")+'" onclick="yn(\''+q[0]+'\',false)">No</button></span></div>'}).join("")
       +'<label><input type="checkbox" '+(S.urgent?"checked":"")+' onchange="S.urgent=this.checked"> I have chest pain, or I feel faint</label><label for="cn" style="display:block;margin-top:10px">Anything else to tell the nurse? (optional)</label><textarea id="cn" rows="2">'+esc(S.note)+'</textarea><button class="btn full" onclick="submitCi()">Send check-in</button></div>'}
   return head()+fl()+(S.queued?'<div class="banner">A check-in is saved on this phone and will send when you are online.</div>':"")+"<h2>Hello, "+esc(p.name)+"</h2>"+body+(p.status==="monitoring"?"":"")+"<h3>Messages</h3>"+msgsV(p.id)}
-function draw(){var h=S.stage==="login"?loginV():S.stage==="enrol"?enrolV():S.stage==="challenge"?challV():S.role==="patient"?patientV():staffV();A.innerHTML='<div class="wrap">'+h+"</div>"}
+function draw(){var h=S.stage==="login"?loginV():S.stage==="enrol"?enrolV():S.stage==="challenge"?challV():S.role==="patient"?patientV():staffV();A.innerHTML='<div class="wrap">'+h+'<p class="mute" style="text-align:center"><small>build 3</small></p></div>'}
 boot();
 </script></body></html>
