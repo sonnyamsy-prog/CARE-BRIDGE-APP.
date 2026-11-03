@@ -14,7 +14,7 @@ input,select,textarea{width:100%;padding:10px;border:1px solid var(--line);borde
 input[type=checkbox]{width:auto;margin:0 8px 0 0}
 .btn{background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 14px;font:inherit;cursor:pointer}
 .btn.alt{background:transparent;color:var(--pri);border:1px solid var(--pri)}.btn.full{width:100%}.btn.sm{padding:6px 10px;font-size:.9rem}
-.tabs{display:flex;gap:6px;margin:8px 0}.tabs button{flex:1;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg);font:inherit;cursor:pointer}
+.tabs{display:flex;gap:6px;margin:8px 0;flex-wrap:wrap}.tabs button{flex:1 1 74px;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg);font:inherit;cursor:pointer}
 .tabs button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
 .dot{width:12px;height:12px;border-radius:50%;display:inline-block;background:var(--grn)}.dot.red{background:var(--red)}.dot.amber{background:var(--amb)}.dot.none{background:var(--line)}
 .pill{font-size:.8rem;padding:2px 8px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
@@ -42,8 +42,9 @@ if(/PASTE_/.test(CFG.url)||/PASTE_/.test(CFG.key)){document.getElementById("app"
 var sb=supabase.createClient(CFG.url,CFG.key),A=document.getElementById("app"),qs=new URLSearchParams(location.search);
 var DEPTS=["Cardiology","Diabetes and endocrine","Respiratory","Renal","Maternity","General medical","Surgical","Paediatrics","Other"];
 var LB={green:"On track",amber:"Needs a call",red:"Urgent",none:"No check-in"};
+var RES={reached_ok:"Reached, doing well",needs_visit:"Reached, needs a visit",no_answer:"No answer",wrong_number:"Wrong number"};
 var QS=[["meds","Did you take your medicines today?"],["sw","Is your swelling worse than usual?"],["br","Is it harder to breathe than usual?"],["fv","Do you have a fever or feel very hot?"]];
-var S={stage:"login",mode:"staff",flt:"monitoring",dept:"",q:"",tab:"patients",pts:[],ci:{},ms:{},sel:null,flash:"",reg:null,org:qs.get("org")||"",form:null,urgent:false,redo:false,note:""};
+var S={stage:"login",mode:"staff",flt:"monitoring",dept:"",q:"",tab:"patients",pts:[],ci:{},ms:{},tasks:[],sel:null,flash:"",reg:null,org:qs.get("org")||"",form:null,urgent:false,redo:false,note:""};
 
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
 function $(i){return document.getElementById(i)}
@@ -124,7 +125,7 @@ async function loadRest(ids){
   m.data.forEach(function(x){(S.ms[x.patient_id]=S.ms[x.patient_id]||[]).push(x)})}
 async function loadStaff(){
   var r=await sb.from("patients").select("*,patient_organizations!inner(organization_id)").eq("patient_organizations.organization_id",S.org).order("created_at",{ascending:false});
-  if(r.error)throw r.error;S.pts=r.data;await loadRest(S.pts.map(function(p){return p.id}))}
+  if(r.error)throw r.error;S.pts=r.data;await loadRest(S.pts.map(function(p){return p.id}));await loadTasks()}
 async function loadPatient(){
   var r=await sb.from("patients").select("*").limit(1);if(r.error)throw r.error;
   S.me=r.data[0];if(!S.me)throw new Error("No patient record found.");S.pts=[S.me];await loadRest([S.me.id])}
@@ -162,10 +163,10 @@ function enrolV(){return'<div class="card"><h2>Set up your authenticator</h2>'+f
 function challV(){return'<div class="card"><h2>Enter your authenticator code</h2>'+fl()+'<label for="mc">6-digit code</label><input id="mc" inputmode="numeric" autocomplete="one-time-code" maxlength="6"><button class="btn full" onclick="verifyMfa()">Verify</button><p><button class="btn alt sm" onclick="out()">Cancel</button></p></div>'}
 function head(){return'<div class="top"><b>CareBridge</b><span><small>'+esc(S.name)+'</small> <button class="btn alt sm" onclick="out()">Sign out</button></span></div>'}
 function alerts(){return S.pts.filter(function(p){var c=last(p.id);return p.status==="monitoring"&&c&&c.risk!=="green"&&!c.ack})}
-function missed(){if(new Date().getHours()<12)return[];var t=new Date().toISOString().slice(0,10);
-  return S.pts.filter(function(p){var c=last(p.id);return p.status==="monitoring"&&p.dd<=t&&!(c&&isToday(c.created_at))})}
-function nav(){var n=alerts().length+missed().length;
-  return'<div class="tabs">'+[["patients","Patients"],["alerts","Alerts"+(n?" ("+n+")":"")],["register","Register"],["account","Account"]].map(function(t){
+async function loadTasks(){var r=await sb.from("followups").select("*").eq("status","open").eq("organization_id",S.org).order("due_date");if(r.error)throw r.error;S.tasks=r.data||[]}
+function resolveTask(id,res){run(async function(){var r=await sb.from("followups").update({status:"done",resolution:res}).eq("id",id);if(r.error)throw r.error;await loadTasks()})}
+function nav(){var a=alerts().length,k=(S.tasks||[]).length;
+  return'<div class="tabs">'+[["patients","Patients"],["alerts","Alerts"+(a?" ("+a+")":"")],["tasks","Tasks"+(k?" ("+k+")":"")],["register","Register"],["account","Account"]].map(function(t){
     return'<button class="'+(S.tab===t[0]&&!S.sel?"on":"")+'" onclick="'+(t[0]==="account"?"openAccount()":"S.tab=\'"+t[0]+"\';S.sel=null;S.reg=null;S.flash=\'\';draw()")+'">'+t[1]+"</button>"}).join("")+"</div>"}
 function rowV(p,extra){var r=lv(p.id);
   return'<button class="row" onclick="S.sel='+p.id+';S.reg=null;draw()"><span class="dot '+r+'"></span><span class="grow"><b>'+esc(p.name)+'</b><small>'+esc(p.dx)+" · "+esc(p.dept)+(extra?" · "+esc(extra):"")+'</small></span><span class="pill '+r+'">'+LB[r]+"</span></button>"}
@@ -175,8 +176,15 @@ function listV(){var q=S.q.toLowerCase(),ord={red:0,amber:1,none:2,green:3};
   +'<select aria-label="Department" onchange="S.dept=this.value;draw()"><option value="">All departments</option>'+DEPTS.map(function(d){return"<option"+(S.dept===d?" selected":"")+">"+d+"</option>"}).join("")+'</select>'
   +'<input type="search" value="'+esc(S.q)+'" placeholder="Search name, code, diagnosis or department" onchange="S.q=this.value;draw()">'
   +(L.map(function(p){return rowV(p)}).join("")||'<p class="mute">No patients here.</p>')}
-function alertsV(){var a=alerts(),m=missed();
-  return'<h2>Alerts</h2>'+(a.map(function(p){return rowV(p,"Not acknowledged")}).join("")+m.map(function(p){return rowV(p,"No check-in today")}).join("")||'<p class="mute">No open alerts.</p>')}
+function alertsV(){var a=alerts();
+  return'<h2>Alerts</h2>'+(a.map(function(p){return rowV(p,"Not acknowledged")}).join("")||'<p class="mute">No open alerts.</p>')}
+function tasksV(){var rows=(S.tasks||[]).map(function(t){
+  var p=S.pts.find(function(x){return x.id===t.patient_id})||{};
+  var rem=t.reminder_sent_at?"SMS reminder sent "+when(t.reminder_sent_at):(p.phone?"No reminder sent":"No phone number on file");
+  return'<div class="card"><b>'+esc(p.name||("Patient "+t.patient_id))+'</b> <span class="pill amber">No check-in</span><br><small>'+esc(p.dx||"")+(p.dept?" · "+esc(p.dept):"")+" · due "+esc(t.due_date)+'</small><br><small class="mute">'+esc(rem)+"</small>"
+    +(p.phone?'<br><a class="btn sm" style="display:inline-block;margin-top:8px;text-decoration:none" href="tel:'+esc(p.phone)+'">Call '+esc(p.phone)+"</a>":"")
+    +'<div class="q" style="margin-top:8px">'+["reached_ok","needs_visit","no_answer","wrong_number"].map(function(k){return'<button class="btn alt sm" onclick="resolveTask('+t.id+',\''+k+'\')">'+RES[k]+"</button>"}).join(" ")+"</div></div>"}).join("");
+  return"<h2>Tasks</h2>"+(rows||'<p class="mute">No open tasks.</p>')}
 function regCard(){return S.reg?'<div class="banner"><b>Code '+esc(S.reg.code)+" · PIN "+esc(S.reg.pin)+'</b><div class="mute">Give these to the patient now. The PIN is not shown again.</div></div>':""}
 function regV(){return'<h2>Register a patient</h2>'+regCard()+'<div class="card"><label for="f_n">Full name</label><input id="f_n"><div class="q"><div style="flex:1"><label for="f_a">Age</label><input id="f_a" inputmode="numeric"></div><div style="flex:2"><label for="f_p">Phone</label><input id="f_p" inputmode="tel"></div></div><label for="f_dx">Diagnosis</label><input id="f_dx"><label for="f_dept">Department</label><select id="f_dept"><option value="">Choose department…</option>'+DEPTS.map(function(d){return"<option>"+d+"</option>"}).join("")+'</select><label for="f_w">Ward</label><input id="f_w"><label for="f_m">Medicines</label><textarea id="f_m" rows="2"></textarea><label for="f_d">Discharge date</label><input id="f_d" type="date"><button class="btn full" onclick="addp()">Register patient</button></div>'}
 function ciV(c,staff){var a=(c.meds?"Took medicines":"Missed medicines")+(c.sw?" · Swelling":"")+(c.br?" · Breathless":"")+(c.fv?" · Fever":"")+(c.em?" · Emergency flag":"");
@@ -202,7 +210,7 @@ function accountV(){var n=S.newStaff,own=S.orgRole==="owner";
   +orgsV()+(own?"<h3>Team</h3>"+(n?'<div class="banner"><b>'+esc(n.name)+" ("+esc(n.role)+')</b><br>Email: <b>'+esc(n.email)+'</b><br>Temporary password: <b>'+esc(n.password)+'</b><div class="mute">Shown once. Give it to them privately and ask them to change it here. They set up their own authenticator at first sign-in.</div></div>':"")
     +(S.team||[]).map(teamRow).join("")+'<div class="card"><h3>Add a staff member</h3><label for="st_n">Full name</label><input id="st_n"><label for="st_e">Email</label><input id="st_e" type="email"><label for="st_r">Role</label><select id="st_r"><option value="nurse">Nurse</option><option value="owner">Owner</option></select><button class="btn full" onclick="addStaff()">Add staff member</button></div>':"")}
 function staffV(){var p=S.sel&&S.pts.find(function(x){return x.id===S.sel});
-  return head()+nav()+fl()+(p?detailV(p):S.tab==="alerts"?alertsV():S.tab==="register"?regV():S.tab==="account"?accountV():listV())}
+  return head()+nav()+fl()+(p?detailV(p):S.tab==="alerts"?alertsV():S.tab==="tasks"?tasksV():S.tab==="register"?regV():S.tab==="account"?accountV():listV())}
 function patientV(){var p=S.me,c=last(p.id),done=c&&isToday(c.created_at)&&!S.redo,msg={green:"Thank you. You are on track. Keep taking your medicines.",amber:"Thank you. A nurse will look at your answers and may call you.",red:"Please contact your nurse or go to the nearest clinic now if you feel very unwell."};
   var body;
   if(p.status!=="monitoring")body='<div class="banner">Your monitoring has ended. Thank you.</div>';
@@ -211,6 +219,6 @@ function patientV(){var p=S.me,c=last(p.id),done=c&&isToday(c.created_at)&&!S.re
     body='<div class="card"><h3>Today’s check-in</h3>'+QS.map(function(q){return'<div class="q"><span>'+q[1]+'</span><span><button class="btn sm'+(f[q[0]]===true?"":" alt")+'" onclick="yn(\''+q[0]+'\',true)">Yes</button> <button class="btn sm'+(f[q[0]]===false?"":" alt")+'" onclick="yn(\''+q[0]+'\',false)">No</button></span></div>'}).join("")
       +'<label><input type="checkbox" '+(S.urgent?"checked":"")+' onchange="S.urgent=this.checked"> I have chest pain, or I feel faint</label><label for="cn" style="display:block;margin-top:10px">Anything else to tell the nurse? (optional)</label><textarea id="cn" rows="2">'+esc(S.note)+'</textarea><button class="btn full" onclick="submitCi()">Send check-in</button></div>'}
   return head()+fl()+(S.queued?'<div class="banner">A check-in is saved on this phone and will send when you are online.</div>':"")+"<h2>Hello, "+esc(p.name)+"</h2>"+body+(p.status==="monitoring"?"":"")+"<h3>Messages</h3>"+msgsV(p.id)}
-function draw(){var h=S.stage==="login"?loginV():S.stage==="enrol"?enrolV():S.stage==="challenge"?challV():S.role==="patient"?patientV():staffV();A.innerHTML='<div class="wrap">'+h+'<p class="mute" style="text-align:center"><small>build 6</small></p></div>'}
+function draw(){var h=S.stage==="login"?loginV():S.stage==="enrol"?enrolV():S.stage==="challenge"?challV():S.role==="patient"?patientV():staffV();A.innerHTML='<div class="wrap">'+h+'<p class="mute" style="text-align:center"><small>build 7</small></p></div>'}
 boot();
 </script></body></html>
