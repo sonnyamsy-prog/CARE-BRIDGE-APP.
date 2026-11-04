@@ -44,7 +44,7 @@ var DEPTS=["Cardiology","Diabetes and endocrine","Respiratory","Renal","Maternit
 var LB={green:"On track",amber:"Needs a call",red:"Urgent",none:"No check-in"};
 var RES={reached_ok:"Reached, doing well",needs_visit:"Reached, needs a visit",no_answer:"No answer",wrong_number:"Wrong number"};
 var QS=[["meds","Did you take your medicines today?"],["sw","Is your swelling worse than usual?"],["br","Is it harder to breathe than usual?"],["fv","Do you have a fever or feel very hot?"]];
-var S={stage:"login",mode:"staff",flt:"monitoring",dept:"",q:"",tab:"patients",pts:[],ci:{},ms:{},tasks:[],sel:null,flash:"",reg:null,org:qs.get("org")||"",form:null,urgent:false,redo:false,note:""};
+var S={stage:"login",mode:"staff",flt:"monitoring",dept:"",q:"",tab:"patients",pts:[],ci:{},ms:{},tasks:[],sel:null,flash:"",reg:null,org:qs.get("org")||"",form:null,urgent:false,redo:false,note:"",ai:{}};
 
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
 function $(i){return document.getElementById(i)}
@@ -192,12 +192,22 @@ function ciV(c,staff){var a=(c.meds?"Took medicines":"Missed medicines")+(c.sw?"
   +(staff&&c.risk!=="green"&&!c.ack?'<br><button class="btn sm" onclick="ack('+c.id+')">Acknowledge</button>':"")+"</div>"}
 function msgsV(pid){return(S.ms[pid]||[]).map(function(m){return'<div class="msg'+(m.sender_role==="patient"?"":" me")+'"><small>'+esc(m.sender_name)+" · "+esc(when(m.created_at))+'</small><br>'+esc(m.body)+"</div>"}).join("")
   +'<textarea id="mt" rows="2" placeholder="Write a message"></textarea><button class="btn sm" onclick="send('+pid+')">Send</button>'}
+function aiV(pid){var st=S.ai[pid]||{msgs:[]};
+  return'<div class="card"><h3>Assistant</h3><p class="mute"><small>Guidance only — it does not diagnose or change dosage. If you feel very unwell, contact your nurse or the nearest clinic.</small></p>'
+  +(st.msgs.map(function(m){return'<div class="msg'+(m.r==="u"?" me":"")+'">'+esc(m.t)+"</div>"}).join("")||'<p class="mute">Ask about your medicines schedule, recovery, or how to use CareBridge.</p>')
+  +(st.busy?'<p class="mute">Thinking…</p>':"")
+  +'<textarea id="ai_'+pid+'" rows="2" placeholder="Ask the assistant"></textarea><button class="btn sm" onclick="aiAsk('+pid+')">Ask</button></div>'}
+function aiAsk(pid){var e=$("ai_"+pid),t=e?e.value.trim():"";if(!t)return;var st=S.ai[pid]=S.ai[pid]||{msgs:[]};
+  st.msgs.push({r:"u",t:t});st.busy=true;draw();
+  sb.functions.invoke("assistant",{body:{patient_id:pid,message:t,history:st.msgs.slice(-8).map(function(m){return{role:m.r==="u"?"user":"model",text:m.t}})}}).then(function(r){
+    if(r.error){var j=r.error.context&&r.error.context.json?r.error.context.json():Promise.resolve({});return j.then(function(x){st.msgs.push({r:"a",t:(x&&x.error)||"The assistant is unavailable. Please talk to your nurse."});st.busy=false;draw()})}
+    st.msgs.push({r:"a",t:r.data.reply});st.busy=false;draw()}).catch(function(){st.msgs.push({r:"a",t:"The assistant is unavailable. Please talk to your nurse."});st.busy=false;draw()})}
 function detailV(p){var cs=S.ci[p.id]||[];
   return'<button class="btn alt sm" onclick="S.sel=null;S.reg=null;draw()">‹ Back</button><h2>'+esc(p.name)+'</h2><p class="mute">'+esc(p.code)+" · "+esc(p.dx)+" · "+esc(p.dept)+(p.ward?" · "+esc(p.ward):"")+(p.age?" · "+esc(p.age)+" yrs":"")+(p.phone?" · "+esc(p.phone):"")+"</p>"
   +(p.meds?"<p><b>Medicines:</b> "+esc(p.meds)+"</p>":"")
   +"<p>"+(cs.slice(-7).map(function(c){return'<span class="dot '+c.risk+'" title="'+esc(when(c.created_at))+'"></span> '}).join("")||'<span class="mute">No check-ins yet</span>')+"</p>"+regCard()
   +"<h3>Recent check-ins</h3>"+(cs.slice(-8).reverse().map(function(c){return ciV(c,true)}).join("")||'<p class="mute">None yet.</p>')
-  +"<h3>Messages</h3>"+msgsV(p.id)
+  +"<h3>Messages</h3>"+msgsV(p.id)+aiV(p.id)
   +'<p><button class="btn alt sm" onclick="setStatus('+p.id+",'"+(p.status==="monitoring"?"closed":"monitoring")+"')\">"+(p.status==="monitoring"?"Close monitoring":"Reopen monitoring")+'</button> <button class="btn alt sm" onclick="resetPin('+p.id+')">New PIN</button></p>'}
 function teamRow(m){return'<div class="row" style="cursor:default"><span class="grow"><b>'+esc(m.name)+'</b><small>'+esc(m.email)+" · "+esc(m.role)+(m.active?"":" · access removed")+"</small></span>"
   +(m.user_id===S.uid?"":'<button class="btn alt sm" onclick="setActive(\''+m.user_id+"',"+(!m.active)+')">'+(m.active?"Remove access":"Restore")+"</button>")+"</div>"}
@@ -218,7 +228,7 @@ function patientV(){var p=S.me,c=last(p.id),done=c&&isToday(c.created_at)&&!S.re
   else{var f=S.form||{};
     body='<div class="card"><h3>Today’s check-in</h3>'+QS.map(function(q){return'<div class="q"><span>'+q[1]+'</span><span><button class="btn sm'+(f[q[0]]===true?"":" alt")+'" onclick="yn(\''+q[0]+'\',true)">Yes</button> <button class="btn sm'+(f[q[0]]===false?"":" alt")+'" onclick="yn(\''+q[0]+'\',false)">No</button></span></div>'}).join("")
       +'<label><input type="checkbox" '+(S.urgent?"checked":"")+' onchange="S.urgent=this.checked"> I have chest pain, or I feel faint</label><label for="cn" style="display:block;margin-top:10px">Anything else to tell the nurse? (optional)</label><textarea id="cn" rows="2">'+esc(S.note)+'</textarea><button class="btn full" onclick="submitCi()">Send check-in</button></div>'}
-  return head()+fl()+(S.queued?'<div class="banner">A check-in is saved on this phone and will send when you are online.</div>':"")+"<h2>Hello, "+esc(p.name)+"</h2>"+body+(p.status==="monitoring"?"":"")+"<h3>Messages</h3>"+msgsV(p.id)}
-function draw(){var h=S.stage==="login"?loginV():S.stage==="enrol"?enrolV():S.stage==="challenge"?challV():S.role==="patient"?patientV():staffV();A.innerHTML='<div class="wrap">'+h+'<p class="mute" style="text-align:center"><small>build 7</small></p></div>'}
+  return head()+fl()+(S.queued?'<div class="banner">A check-in is saved on this phone and will send when you are online.</div>':"")+"<h2>Hello, "+esc(p.name)+"</h2>"+body+(p.status==="monitoring"?"":"")+"<h3>Messages</h3>"+msgsV(p.id)+aiV(p.id)}
+function draw(){var h=S.stage==="login"?loginV():S.stage==="enrol"?enrolV():S.stage==="challenge"?challV():S.role==="patient"?patientV():staffV();A.innerHTML='<div class="wrap">'+h+'<p class="mute" style="text-align:center"><small>build 8</small></p></div>'}
 boot();
 </script></body></html>
