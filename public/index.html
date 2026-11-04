@@ -166,7 +166,7 @@ function alerts(){return S.pts.filter(function(p){var c=last(p.id);return p.stat
 async function loadTasks(){var r=await sb.from("followups").select("*").eq("status","open").eq("organization_id",S.org).order("due_date");if(r.error)throw r.error;S.tasks=r.data||[]}
 function resolveTask(id,res){run(async function(){var r=await sb.from("followups").update({status:"done",resolution:res}).eq("id",id);if(r.error)throw r.error;await loadTasks()})}
 function nav(){var a=alerts().length,k=(S.tasks||[]).length;
-  return'<div class="tabs">'+[["patients","Patients"],["alerts","Alerts"+(a?" ("+a+")":"")],["tasks","Tasks"+(k?" ("+k+")":"")],["register","Register"],["account","Account"]].map(function(t){
+  return'<div class="tabs">'+[["patients","Patients"],["alerts","Alerts"+(a?" ("+a+")":"")],["tasks","Tasks"+(k?" ("+k+")":"")],["stats","Stats"],["register","Register"],["account","Account"]].map(function(t){
     return'<button class="'+(S.tab===t[0]&&!S.sel?"on":"")+'" onclick="'+(t[0]==="account"?"openAccount()":"S.tab=\'"+t[0]+"\';S.sel=null;S.reg=null;S.flash=\'\';draw()")+'">'+t[1]+"</button>"}).join("")+"</div>"}
 function rowV(p,extra){var r=lv(p.id);
   return'<button class="row" onclick="S.sel='+p.id+';S.reg=null;draw()"><span class="dot '+r+'"></span><span class="grow"><b>'+esc(p.name)+'</b><small>'+esc(p.dx)+" · "+esc(p.dept)+(extra?" · "+esc(extra):"")+'</small></span><span class="pill '+r+'">'+LB[r]+"</span></button>"}
@@ -220,7 +220,48 @@ function accountV(){var n=S.newStaff,own=S.orgRole==="owner";
   +orgsV()+(own?"<h3>Team</h3>"+(n?'<div class="banner"><b>'+esc(n.name)+" ("+esc(n.role)+')</b><br>Email: <b>'+esc(n.email)+'</b><br>Temporary password: <b>'+esc(n.password)+'</b><div class="mute">Shown once. Give it to them privately and ask them to change it here. They set up their own authenticator at first sign-in.</div></div>':"")
     +(S.team||[]).map(teamRow).join("")+'<div class="card"><h3>Add a staff member</h3><label for="st_n">Full name</label><input id="st_n"><label for="st_e">Email</label><input id="st_e" type="email"><label for="st_r">Role</label><select id="st_r"><option value="nurse">Nurse</option><option value="owner">Owner</option></select><button class="btn full" onclick="addStaff()">Add staff member</button></div>':"")}
 function staffV(){var p=S.sel&&S.pts.find(function(x){return x.id===S.sel});
-  return head()+nav()+fl()+(p?detailV(p):S.tab==="alerts"?alertsV():S.tab==="tasks"?tasksV():S.tab==="register"?regV():S.tab==="account"?accountV():listV())}
+  return head()+nav()+fl()+(p?detailV(p):S.tab==="alerts"?alertsV():S.tab==="tasks"?tasksV():S.tab==="stats"?statsV():S.tab==="register"?regV():S.tab==="account"?accountV():listV())}
+function computeStats(){var mon=S.pts.filter(function(p){return p.status==="monitoring"});
+  var due=mon.filter(function(p){return p.dd<=new Date().toISOString().slice(0,10)});
+  var doneT=due.filter(function(p){var c=last(p.id);return c&&isToday(c.created_at)});
+  var reds=0,ambs=0;
+  S.pts.forEach(function(p){(S.ci[p.id]||[]).forEach(function(c){if(Date.now()-new Date(c.created_at).getTime()<7*864e5){if(c.risk==="red")reds++;else if(c.risk==="amber")ambs++}})});
+  var riskC={green:0,amber:0,red:0,none:0};mon.forEach(function(p){riskC[lv(p.id)]++});
+  var days=[];for(var i=13;i>=0;i--){var key=new Date(Date.now()-i*864e5).toDateString();var n=0;
+    S.pts.forEach(function(p){(S.ci[p.id]||[]).forEach(function(c){if(new Date(c.created_at).toDateString()===key)n++})});
+    days.push({l:new Date(Date.now()-i*864e5).getDate()+"/"+(new Date(Date.now()-i*864e5).getMonth()+1),n:n})}
+  var open=(S.tasks||[]).filter(function(t){return t.status==="open"}).length;
+  return{total:S.pts.length,mon:mon.length,closed:S.pts.length-mon.length,due:due.length,doneT:doneT.length,reds:reds,ambs:ambs,riskC:riskC,days:days,open:open}}
+function statCard(label,value,sub){return'<div style="flex:1 1 130px;border:1px solid #99E5DB;border-radius:8px;padding:10px;text-align:center"><div style="font-size:26px;font-weight:700;color:#0F766E">'+value+'</div><div style="font-size:12px">'+esc(label)+'</div>'+(sub?'<div class="mute" style="font-size:11px">'+esc(sub)+'</div>':"")+"</div>"}
+function statsV(){var s=computeStats();
+  var pct=s.due?Math.round(s.doneT*100/s.due):0;
+  var max=1;s.days.forEach(function(d){if(d.n>max)max=d.n});
+  var deptRows=DEPTS.map(function(d){var ps=S.pts.filter(function(p){return p.dept===d});if(!ps.length)return"";
+    var m=ps.filter(function(p){return p.status==="monitoring"});
+    var dn=m.filter(function(p){var c=last(p.id);return c&&isToday(c.created_at)}).length;
+    return"<tr><td style='padding:4px 8px;border-bottom:1px solid #E5E7EB'>"+esc(d)+"</td><td style='padding:4px 8px;border-bottom:1px solid #E5E7EB;text-align:center'>"+ps.length+"</td><td style='padding:4px 8px;border-bottom:1px solid #E5E7EB;text-align:center'>"+m.length+"</td><td style='padding:4px 8px;border-bottom:1px solid #E5E7EB;text-align:center'>"+(m.length?Math.round(dn*100/m.length)+"%":"—")+"</td></tr>"}).join("");
+  return'<h2>Stats</h2><p class="mute">Live picture for this organization. <button class="btn sm" onclick="copyStats()">Copy report</button></p>'
+  +'<div style="display:flex;flex-wrap:wrap;gap:8px">'
+  +statCard("Monitoring now",s.mon,s.closed+" closed")
+  +statCard("Adherence today",s.due?pct+"%":"—",s.doneT+" of "+s.due+" due checked in")
+  +statCard("Red alerts (7d)",s.reds,s.ambs+" amber")
+  +statCard("Open tasks",s.open)
+  +"</div>"
+  +'<h3>Check-ins — last 14 days</h3><div style="display:flex;align-items:flex-end;gap:3px;height:110px;border-bottom:1px solid #CCC;margin:10px 0 4px">'
+  +s.days.map(function(d){return'<div title="'+d.n+' check-ins" style="flex:1;background:#2BB3A3;height:'+Math.max(Math.round(d.n*100/max),d.n?4:1)+'px"></div>'}).join("")+"</div>"
+  +'<div style="display:flex;gap:3px">'+s.days.map(function(d){return'<div style="flex:1;text-align:center;font-size:9px;color:#888">'+d.l+"</div>"}).join("")+"</div>"
+  +'<h3>Current risk (monitoring patients)</h3><p><span class="dot green"></span> '+s.riskC.green+' green &nbsp; <span class="dot amber"></span> '+s.riskC.amber+' amber &nbsp; <span class="dot red"></span> '+s.riskC.red+' red &nbsp; <span class="dot none"></span> '+s.riskC.none+' no check-in yet</p>'
+  +(deptRows?'<h3>By department</h3><table style="width:100%;border-collapse:collapse;font-size:14px"><tr><th style="text-align:left;padding:4px 8px">Department</th><th style="padding:4px 8px">Patients</th><th style="padding:4px 8px">Monitoring</th><th style="padding:4px 8px">Adherence today</th></tr>'+deptRows+"</table>":"")
+  +'<p class="mute" style="margin-top:16px">Tip: use Copy report and paste it into WhatsApp or an email to show hospital management how the ward is doing.</p>'}
+function copyStats(){var s=computeStats();var org=(S.orgs||[]).find(function(o){return o.id===S.org});var name=org?org.name:"CareBridge";
+  var pct=s.due?Math.round(s.doneT*100/s.due):0;
+  var lines=["CareBridge report — "+new Date().toLocaleDateString()+" — "+name,
+    "Patients: "+s.total+" ("+s.mon+" monitoring, "+s.closed+" closed)",
+    "Check-in adherence today: "+pct+"% ("+s.doneT+" of "+s.due+" due)",
+    "Alerts last 7 days: "+s.reds+" red, "+s.ambs+" amber",
+    "Open follow-up tasks: "+s.open,
+    "Current risk: "+s.riskC.red+" red, "+s.riskC.amber+" amber, "+s.riskC.green+" green, "+s.riskC.none+" no check-in yet"];
+  navigator.clipboard.writeText(lines.join("\n")).then(function(){S.flash="Report copied. Paste it into WhatsApp, email, or a document.";draw()},function(){S.flash="Copy failed. Long-press to select and copy manually.";draw()})}
 function patientV(){var p=S.me,c=last(p.id),done=c&&isToday(c.created_at)&&!S.redo,msg={green:"Thank you. You are on track. Keep taking your medicines.",amber:"Thank you. A nurse will look at your answers and may call you.",red:"Please contact your nurse or go to the nearest clinic now if you feel very unwell."};
   var body;
   if(p.status!=="monitoring")body='<div class="banner">Your monitoring has ended. Thank you.</div>';
@@ -229,6 +270,6 @@ function patientV(){var p=S.me,c=last(p.id),done=c&&isToday(c.created_at)&&!S.re
     body='<div class="card"><h3>Today’s check-in</h3>'+QS.map(function(q){return'<div class="q"><span>'+q[1]+'</span><span><button class="btn sm'+(f[q[0]]===true?"":" alt")+'" onclick="yn(\''+q[0]+'\',true)">Yes</button> <button class="btn sm'+(f[q[0]]===false?"":" alt")+'" onclick="yn(\''+q[0]+'\',false)">No</button></span></div>'}).join("")
       +'<label><input type="checkbox" '+(S.urgent?"checked":"")+' onchange="S.urgent=this.checked"> I have chest pain, or I feel faint</label><label for="cn" style="display:block;margin-top:10px">Anything else to tell the nurse? (optional)</label><textarea id="cn" rows="2">'+esc(S.note)+'</textarea><button class="btn full" onclick="submitCi()">Send check-in</button></div>'}
   return head()+fl()+(S.queued?'<div class="banner">A check-in is saved on this phone and will send when you are online.</div>':"")+"<h2>Hello, "+esc(p.name)+"</h2>"+body+(p.status==="monitoring"?"":"")+"<h3>Messages</h3>"+msgsV(p.id)+aiV(p.id)}
-function draw(){var h=S.stage==="login"?loginV():S.stage==="enrol"?enrolV():S.stage==="challenge"?challV():S.role==="patient"?patientV():staffV();A.innerHTML='<div class="wrap">'+h+'<p class="mute" style="text-align:center"><small>build 8</small></p></div>'}
+function draw(){var h=S.stage==="login"?loginV():S.stage==="enrol"?enrolV():S.stage==="challenge"?challV():S.role==="patient"?patientV():staffV();A.innerHTML='<div class="wrap">'+h+'<p class="mute" style="text-align:center"><small>build 9</small></p></div>'}
 boot();
 </script></body></html>

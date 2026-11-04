@@ -1,5 +1,5 @@
 // Caches only this site's own files (never Supabase data), so no patient information is stored in the cache.
-const C = "carebridge-v5", SHELL = ["./", "manifest.webmanifest", "icon-192.png"];
+const C = "carebridge-v6", SHELL = ["./", "manifest.webmanifest", "icon-192.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(C).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== C).map(x => caches.delete(x))))); self.clients.claim(); });
 self.addEventListener("fetch", e => {
