@@ -1,32 +1,81 @@
-# CareBridge (complete)
+# CareBridge — new icon
 
-Post-discharge recovery monitoring for hospitals in Kenya. Patients answer four daily questions; nurses see a risk-sorted list, urgent alerts, missed check-ins and messages.
+The teal tile with a plain white plus has been replaced with your CareBridge wordmark
+(hospital cross, bridge arc, heart, "Support beyond discharge").
 
-```
-public/                  the app (static site: sign-in, nurse and patient screens, installable on phones, offline check-ins)
-schema.sql               database, security rules, organizations, authenticator-code enforcement, audit trail
-supabase/functions/
-  patients/              register patients and reset PINs (uses the secret key, server side only)
-  urgent-alert/          optional push message when an URGENT check-in arrives
-docs/                    PRIVACY.md and SECURITY.md (written for the first version; review before real use)
-legacy-node-server/      the first, self-hosted version (Node + Render). Not needed for the Supabase version.
-```
+This updates the browser tab icon, the phone home-screen icon, and the installed
+desktop app icon.
 
-## Setup, in order
-1. **Supabase > SQL Editor**: paste `schema.sql`, Run. (It deletes any older CareBridge tables first.)
-2. **Authentication > Users > Add user**: create your staff user (tick Auto Confirm) and copy its ID.
-3. **SQL Editor**: run the three lines at the bottom of the "FIRST-TIME SETUP" block with your IDs filled in and the leading `--` removed. The first returns your **Organization ID**: save it.
-4. **Edge Functions**: create a function named exactly `patients`, paste `supabase/functions/patients/index.ts`, deploy.
-5. Open `public/index.html` and set `CFG.url` and `CFG.key` (Project URL and the *public* key only, never the secret or service-role key).
-6. Deploy `public/` as a Static Site (Render: Publish Directory `public`, Build Command empty).
-7. Sign in as staff with Organization ID, email, password; scan the QR code with an authenticator app on first login.
+## Files to upload (7)
 
-More nurses: create them in Authentication > Users, then add a `profiles` row (role `staff`) and an `organization_members` row (role `nurse`).
+| File | What it is |
+|---|---|
+| `index.html` | Build 9, with the icon links changed to the new files |
+| `manifest.webmanifest` | PWA manifest pointing at the new icons |
+| `sw.js` | Service worker, cache bumped to `carebridge-v7` (required, or phones keep the old icon) |
+| `icon-192-v2.png` | Standard icon, 192x192 |
+| `icon-512-v2.png` | Standard icon, 512x512 |
+| `icon-maskable-192-v2.png` | Padded version for Android's round/squircle mask |
+| `icon-maskable-512-v2.png` | Padded version for Android's round/squircle mask |
 
-## Optional: urgent alert push
-1. Deploy `urgent-alert` as an Edge Function with "Verify JWT" **off**.
-2. Set its secrets: `ALERT_WEBHOOK_URL` (Slack/Teams/ntfy/SMS gateway URL) and `WEBHOOK_SECRET` (long random text).
-3. **Database > Webhooks > Create**: table `checkins`, event Insert, type Supabase Edge Function `urgent-alert`, add header `x-webhook-secret` with the same secret.
+`CareBridge.ico` is **not uploaded** — it is only for the optional Windows shortcut step below.
 
-## Audit trail
-Check-ins, acknowledgements, messages, registrations, status changes and PIN resets are recorded in the `audit_log` table (view it in Table Editor). Sign-in events are in Supabase's own Auth logs.
+Keep the file names exactly as they are. The `-v2` suffix is deliberate: it makes
+Chrome and Android fetch the new image instead of reusing the cached old one.
+
+## 1. Deploy
+
+Use the same route you used for build 9.
+
+**If you upload through GitHub (repo connected to Render):**
+1. Open your CareBridge repository on github.com.
+2. Go to the folder that already contains `index.html` (repo root or `public/`).
+3. **Add file → Upload files**, drag in all 7 files above, then **Commit changes**.
+4. Open Render → your CareBridge service → wait until it says **Live**.
+
+**If you upload directly in Render:**
+1. Put the same 7 files in the same folder that holds `index.html`, replacing the old ones.
+2. Deploy and wait for **Live**.
+
+## 2. Check the deploy
+
+1. Open your site address followed by `/manifest.webmanifest`
+   (for example `https://care-bridge-app-2pbv.onrender.com/manifest.webmanifest`).
+   You should see the four `-v2` icon names.
+2. Open the site in a new tab and press **Ctrl+F5**. The tab icon should show the new logo.
+
+## 3. Update the installed app icon
+
+Chrome caches the icon of an app that is already installed, so deploying alone will not
+repaint it. Reinstall the app once:
+
+**Windows (the CareBridge desktop shortcut):**
+1. Close the CareBridge app window.
+2. In Chrome open `chrome://apps`.
+3. Right-click **CareBridge → Remove from Chrome**.
+4. Open your CareBridge site, click the **install icon** at the right end of the address bar
+   (a small screen with a down arrow) → **Install**.
+5. The desktop and taskbar icon now use the new logo.
+   (If Windows still shows the old one, restart Explorer or sign out and back in — that is
+   the Windows icon cache, not the app.)
+
+**Android phone:**
+1. Long-press the CareBridge icon → **Uninstall** / **Remove**.
+2. Open the site in Chrome → menu **⋮ → Add to Home screen** (or **Install app**).
+
+## Optional — change the desktop shortcut icon right now
+
+If you do not want to reinstall:
+1. Right-click the **CareBridge** shortcut → **Properties**.
+2. **Change Icon… → Browse…**, pick `CareBridge.ico` from this folder, then **OK → OK**.
+3. Chrome may reset it the next time the app is reinstalled or updated.
+
+## One thing to know about the artwork
+
+This is a wide logo, so on very small icons — the browser tab (16–32 px) and the small
+desktop view — the words and tagline become hard to read. The 192 px and 512 px icons
+(home screen, app window, taskbar) are crisp.
+
+If you want the tab/small icon to stay sharp, I can use just the rounded hospital-cross
+badge for sizes 48 px and below, while keeping the full wordmark for the large app icon.
+Say the word and I will rebuild the set.
